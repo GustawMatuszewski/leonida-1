@@ -31,7 +31,10 @@ come from RADV, which runs the VS stage as wave64 by default and as wave32 with 
 Each draws 960 vertices with zero area (VKH_VERTICES) and stores four words per vertex to the heap; vs_w64_c_lane_id
 doubles as the probe that the wave size really changed, and without RADV only the default-size checks run. RADV packs
 62 or 64 vertices into a wave64 and 30 or 32 into a wave32, so the 32-lane run is a repacking, not the two halves of
-the 64-lane waves: a stricter test of tiers A and B, which key every word on the vertex index.
+the 64-lane waves: a stricter test of tiers A and B, which key every word on the vertex index. A driver that runs the
+stage 32-wide and ignores the variable (MoltenVK/Metal: one subgroup size, 32) cannot run the comparison at all, so
+a probe that measured a 32-wide stage skips these fixtures instead of reporting the device's wave width as a failure
+(TEST-1968).
 
 The gs_w64_* fixtures are legacy geometry shaders, switched the same way (gewave32 covers the whole NGG stage). Each is
 drawn after vs_ids with VKH_GS, finds its triangle from the vertex number vs_ids passes in TEXCOORD0, and stores four
@@ -215,6 +218,9 @@ FIXTURES = {
 
 PROBES = {"vs": "vs_w64_c_lane_id", "gs": "gs_w64_c_lane_id"}   # per stage: the largest lane id shows the wave size
 _applied = {}
+# The lane id each probe run measured, per (stage, size): None when the probe could not run at all. `_applied` says
+# whether the width took effect; this says which width actually ran, for the fixtures whose words assume 64 lanes.
+_measured = {}
 
 
 def _radv_perftest(size):
@@ -233,7 +239,9 @@ def _wave_size(tools, spirv, stage, size, tmp):
             words, problem = _draw_heap(tools, spirv, PROBES[stage], s, tmp)
             if words is None and not problem.startswith("unsupported"):
                 return None, f"{s}-wide {stage} subgroup probe: {problem}"
-            return (None if words is None else max(w[0] for w in words)), None
+            lane = None if words is None else max(w[0] for w in words)
+            _measured[stage, s] = lane
+            return lane, None
         lane64, problem = top(64)
         if problem:
             return False, problem
@@ -394,6 +402,18 @@ def check(tools, spirv, name):
             if size is None or applied:
                 runs[size] = (words, heap)
         compared = False
+        # A vs_/gs_ fixture's words are derived for 64-lane waves (x = i % 64), so they only mean something where the
+        # stage really ran 64-wide. A device that runs it 32-wide and cannot be held to 64 (MoltenVK: one subgroup
+        # size, 32) draws a 32-wide default run, and comparing that against the 64-lane words reports the device's wave
+        # width as a fixture failure (TEST-1968). Skip instead, naming the width the probe measured. A probe that could
+        # not run at all measured nothing and keeps the default-draw comparison below.
+        if name.startswith(("vs_", "gs_")) and 64 not in runs:
+            measured = _measured.get((name[:2], 64))
+            if measured is not None and measured < 32:
+                stage = "vertex" if name.startswith("vs_") else "geometry"
+                return Skip(f"SKIP (the {stage} stage ran a 32-wide subgroup here and could not be asked for 64 "
+                            f"(lane {measured}, measured with {PROBES[name[:2]]}): this fixture's words are derived "
+                            "for 64-lane waves)")
         # Tiers A and B mean exact on 32 or 64 live lanes. A device whose subgroups can be narrower than 32 (Intel:
         # 8..32) and that could not be held to 32 or 64 may run fewer live lanes than it reports (UHD 770: 16 live
         # behind a reported 32): reads across them return garbage.
