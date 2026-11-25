@@ -1,7 +1,8 @@
 """Progress dashboard: what works, what changed and what blocks next, from outcomes the project already produces.
 
     python -I tools/progress_dashboard.py --out <folder outside the repository> [--work <work>] [--run-tests]
-                                          [--ctest-junit FILE] [--junit FILE ...] [--github] [--login NAME]
+                                          [--tests REGEX] [--ctest-junit FILE] [--junit FILE ...] [--github]
+                                          [--login NAME]
 
 Writes, into --out only (a folder inside the repository is refused, so nothing here can be committed by accident):
     progress.html                 one self-contained page (no network, no packages; open it from disk)
@@ -1062,6 +1063,8 @@ def main(argv=None):
         ap.error("--jobs must be a positive integer")
     if args.test_timeout < 1:
         ap.error("--test-timeout must be a positive integer")
+    if args.tests is not None and not args.run_tests:
+        ap.error("--tests requires --run-tests")
     if args.run_tests and args.tests:
         try:
             args.tests = re.compile(args.tests)
