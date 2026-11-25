@@ -117,7 +117,8 @@ procesora (można to zmienić przez `--jobs`).
   PR #664), `--bary-fallback` (czyta surowe barycentryki z interpolowanego wejścia, dla urządzeń bez
   `VK_KHR_fragment_shader_barycentric`), `--texel-offset-fallback` (wlicza przesunięcia `image_sample*_o` do
   współrzędnej, dla urządzeń bez `VK_KHR_maintenance8`) i `--mesh-compute` (shadery mesh jako compute, dla urządzeń
-  bez `VK_EXT_mesh_shader`). Każda jest opisana w [`docs/design.md`](../../design.md).
+  bez `VK_EXT_mesh_shader`; włącza się sama na windowsowym sterowniku Vulkan Intela, gdzie natywne rysowanie mesh
+  wywala program - BUILD-2202 - chyba że podano `--native-mesh`). Każda jest opisana w [`docs/design.md`](../../design.md).
 - **`--work`**: najlepiej wskazać dysk z co najmniej 400 GB wolnego miejsca; do samego uruchomienia wystarczy około
   30 GB (zobacz „Mało miejsca na dysku” powyżej).
 - **`--wav`**: domyślnie wyłączone, bo 16-bitowy PCM WAV jest kilkakrotnie większy od Ogg Opus. Dekoduje przepakowane
