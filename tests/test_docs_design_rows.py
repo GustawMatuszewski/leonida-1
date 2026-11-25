@@ -1,5 +1,5 @@
-"""Each table in docs/design.md, docs/README.md and docs/testing.md names a topic once, and every row has the
-same number of cells as its header.
+"""Each table in docs/design.md, docs/README.md, docs/testing.md and the top-level README.md names a topic
+once, and every row has the same number of cells as its header.
 
     python -I tests/test_docs_design_rows.py
 
@@ -20,6 +20,12 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGES = ("design.md", "README.md", "testing.md")
+PAGE_PATHS = (
+    *(("docs/" + page, os.path.join(ROOT, "docs", page)) for page in PAGES),
+    # the hand-written project status table lives in the top-level README.md; on 2026-11-23 six of its
+    # topics stood two to four times over after the round-44 merge waves, so it joins the checked pages
+    ("README.md", os.path.join(ROOT, "README.md")),
+)
 
 
 def unescaped_pipes(line):
@@ -102,20 +108,20 @@ class DesignTableRows(unittest.TestCase):
         self.assertEqual(mis_shaped_rows(lines), [(3, 5, 3)])
 
     def test_each_page_has_rows_its_header_can_hold(self):
-        for page in PAGES:
-            with self.subTest(page=page):
-                with open(os.path.join(ROOT, "docs", page), encoding="utf-8") as f:
+        for label, path in PAGE_PATHS:
+            with self.subTest(page=label):
+                with open(path, encoding="utf-8") as f:
                     lines = f.read().split("\n")
                 wrong = mis_shaped_rows(lines)
-                self.assertEqual(wrong, [], f"rows to fix in docs/{page} (line, cells, header cells): {wrong}")
+                self.assertEqual(wrong, [], f"rows to fix in {label} (line, cells, header cells): {wrong}")
 
     def test_each_page_names_each_topic_once_per_table(self):
-        for page in PAGES:
-            with self.subTest(page=page):
-                with open(os.path.join(ROOT, "docs", page), encoding="utf-8") as f:
+        for label, path in PAGE_PATHS:
+            with self.subTest(page=label):
+                with open(path, encoding="utf-8") as f:
                     lines = f.read().split("\n")
                 repeated = repeated_topics(lines)
-                self.assertEqual(repeated, [], f"rows to merge into one in docs/{page} (topic, lines): " +
+                self.assertEqual(repeated, [], f"rows to merge into one in {label} (topic, lines): " +
                                  "; ".join(f"{k[:60]!r} at {v}" for k, v in repeated))
 
     def test_deduplicating_a_row_keeps_its_unique_border_mode_facts(self):
