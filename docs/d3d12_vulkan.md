@@ -1492,6 +1492,30 @@ PC answers 0 and leaves buffers and resources with a PC address unchanged
 sets a slot-133 fallback texture's `GetGPUVirtualAddress` to the title address; the image itself still does not
 alias the title's pages.
 
+**Measured: on RADV the alias is refused in the kernel, not in this layer.** The pagefile-backed section view is
+file-backed memory, so the only route to aliasing its pages is the host-pointer import -
+`vkAllocateMemory` with `VkImportMemoryHostPointerInfoEXT(HOST_ALLOCATION)` - and the layer's own checks
+(`Resource::create_host_buffer`: `MEM_COMMIT`, not WC/NOCACHE, a memory type and offset that fit) accept the range.
+The driver then refuses it: `radv_bo_from_ptr` -> `radv_amdgpu_winsys_bo_from_ptr` ->
+`ac_drm_create_bo_from_user_mem` (`src/amd/common/ac_linux_drm.c:952` in Mesa 26.0.8) -> libdrm's
+`amdgpu_create_bo_from_user_mem` (`amdgpu/amdgpu_bo.c:587`), which creates the userptr BO with
+`AMDGPU_GEM_USERPTR_ANONONLY | _REGISTER | _VALIDATE`, and the kernel rejects any userptr VMA that carries a
+`vm_file` under that flag: `amdgpu_ttm_tt_get_user_pages()` answers `-EPERM` (`amdgpu_ttm.c`, v7.0 lines 743-746).
+A section view is file-backed by construction, so there is no range of it that imports (strace of a full test: 2 of 9
+`DRM_IOCTL_AMDGPU_GEM_USERPTR` calls return `-EPERM`, both from the `vkAllocateMemory` for the section view). Mesa
+maps everything but `-EINVAL` to `VK_ERROR_UNKNOWN`, so the layer sees a failed allocation, reports `E_OUTOFMEMORY`
+and takes the ordinary committed buffer instead. Upstream, work item #15144 is closed and
+[!40574](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/40574) (merged) only normalises which `VkResult`
+that comes back as: the refusal is unchanged, and Mesa's own features.txt still lists
+`VK_EXT_external_memory_host` as DONE for RADV.
+
+Two things follow, and both are what this layer does or still owes. A driver-assigned buffer address can never equal
+the title's CPU pointer (measured on RADV: host `0x7f..`, BDA `0xffff800100040000`), so the fallback has to be
+bookkeeping plus a copy: register the fallback at the title's VA so every CPU-recorded call that names it resolves
+(`VulkanContext::buffer_at`'s root descriptors, IA views, immediate writes, copies, dispatch arguments, and SRVs
+built from that VA), and copy the committed pages into it at creation and per submission (182 MiB for the retail
+buffer; dirty-page tracking would be the follow-up). GPU writes cannot be copied back to the title's pages.
+
 Non-arena buffers (upload/readback) can still be addressed by the shader without putting them in the arena: pass
 `console_va = host_bda - heap_base` (mod 2^64) in root descriptors and vertex/index/indirect views, so the shader's
 `heap_base + console_va` equals the host BDA. For descriptors, patch the V# base field the same way when the layer
